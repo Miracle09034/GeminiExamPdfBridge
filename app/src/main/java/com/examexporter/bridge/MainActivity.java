@@ -10,7 +10,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -27,7 +26,6 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private static final int REQ_STORAGE = 1001;
-    private static final String TAG = "GeminiExamPDF";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -40,11 +38,13 @@ public class MainActivity extends Activity {
         status.setPadding(40, 40, 40, 40);
         setContentView(status);
 
-        parseIntent(getIntent());
+        Intent intent = getIntent();
+        htmlPath = intent.getStringExtra("html_path");
+        pdfPath = intent.getStringExtra("pdf_path");
 
         if (htmlPath == null || pdfPath == null) {
             status.setText("Missing html_path or pdf_path.");
-            finishWithError("Missing html_path or pdf_path parameters.");
+            finish();
             return;
         }
 
@@ -58,33 +58,6 @@ public class MainActivity extends Activity {
         } else {
             startConversion();
         }
-    }
-
-    @Override
-    protected void onNewIntent(Intent intent) {
-        super.onNewIntent(intent);
-        setIntent(intent);
-        started = false;
-        parseIntent(intent);
-        if (htmlPath != null && pdfPath != null) {
-            startConversion();
-        }
-    }
-
-    private void parseIntent(Intent intent) {
-        if (intent == null) return;
-
-        // 1. Try reading from Deep Link URI (gemini-pdf://render?html=...&pdf=...)
-        Uri uri = intent.getData();
-        if (uri != null && "gemini-pdf".equalsIgnoreCase(uri.getScheme())) {
-            htmlPath = uri.getQueryParameter("html");
-            pdfPath = uri.getQueryParameter("pdf");
-            return;
-        }
-
-        // 2. Fallback to standard Intent Extras (for legacy am start calls)
-        htmlPath = intent.getStringExtra("html_path");
-        pdfPath = intent.getStringExtra("pdf_path");
     }
 
     @Override
@@ -110,7 +83,7 @@ public class MainActivity extends Activity {
         if (parent != null && !parent.exists()) parent.mkdirs();
 
         webView = new WebView(this);
-        webView.setVisibility(View.INVISIBLE);
+        webView.setVisibility(View.VISIBLE);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -118,11 +91,13 @@ public class MainActivity extends Activity {
         settings.setAllowContentAccess(true);
         settings.setLoadsImagesAutomatically(true);
         settings.setDefaultTextEncodingName("UTF-8");
+        settings.setAllowFileAccessFromFileURLs(true);
+        settings.setAllowUniversalAccessFromFileURLs(true)
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // Allow local images, fonts, and layout to settle before exporting.
+                // Allow local images, fonts and layout to settle before exporting.
                 handler.postDelayed(() -> exportPdf(), 900);
             }
         });
@@ -134,29 +109,33 @@ public class MainActivity extends Activity {
     }
 
     private void exportPdf() {
-        if (webView == null) return;
+    if (webView == null) return;
 
-        try {
-            android.print.PrintAttributes attrs =
-                    new android.print.PrintAttributes.Builder()
-                            .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4)
-                            .setMinMargins(android.print.PrintAttributes.Margins.NO_MARGINS)
-                            .build();
+    try {
+        android.print.PrintAttributes attrs =
+                new android.print.PrintAttributes.Builder()
+                        .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4)
+                        .setMinMargins(android.print.PrintAttributes.Margins.NO_MARGINS)
+                        .build();
 
-            android.print.PrintDocumentAdapter adapter =
-                    webView.createPrintDocumentAdapter(new File(pdfPath).getName());
+        android.print.PrintDocumentAdapter adapter =
+                webView.createPrintDocumentAdapter(new File(pdfPath).getName());
 
-            new android.print.PdfPrint(attrs).print(
-                    adapter,
-                    new File(pdfPath)
-            );
-        } catch (Exception e) {
-            finishWithError("PDF export failed: " + e);
-        }
+        new android.print.PdfPrint(attrs).print(
+                adapter,
+                new File(pdfPath)
+        );
+
+        // Give the print job 1 second to write the file, then close the Activity
+        handler.postDelayed(this::finish, 1000);
+
+    } catch (Exception e) {
+        finishWithError("PDF export failed: " + e);
     }
+}
 
     private void finishWithError(String message) {
-        Log.e(TAG, message);
+        android.util.Log.e("GeminiExamPDF", message);
         finish();
     }
 
