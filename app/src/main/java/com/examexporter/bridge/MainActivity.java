@@ -92,7 +92,7 @@ public class MainActivity extends Activity {
         settings.setLoadsImagesAutomatically(true);
         settings.setDefaultTextEncodingName("UTF-8");
         settings.setAllowFileAccessFromFileURLs(true);
-        settings.setAllowUniversalAccessFromFileURLs(true)
+        settings.setAllowUniversalAccessFromFileURLs(true);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
