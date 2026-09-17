@@ -14,10 +14,24 @@
         <activity
             android:name=".MainActivity"
             android:exported="true">
+            
+            <!-- Legacy Action Filter (Kept for backward compatibility) -->
             <intent-filter>
                 <action android:name="com.examexporter.bridge.CONVERT" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+
+            <!-- Deep Link Filter for gemini-pdf://render?html=...&pdf=... -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                
+                <data
+                    android:scheme="gemini-pdf"
+                    android:host="render" />
+            </intent-filter>
+
         </activity>
     </application>
 </manifest>
