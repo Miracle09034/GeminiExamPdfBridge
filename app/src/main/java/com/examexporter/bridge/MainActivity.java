@@ -10,6 +10,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -26,6 +27,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private static final int REQ_STORAGE = 1001;
+    private static final String TAG = "GeminiExamPDF";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -38,13 +40,11 @@ public class MainActivity extends Activity {
         status.setPadding(40, 40, 40, 40);
         setContentView(status);
 
-        Intent intent = getIntent();
-        htmlPath = intent.getStringExtra("html_path");
-        pdfPath = intent.getStringExtra("pdf_path");
+        parseIntent(getIntent());
 
         if (htmlPath == null || pdfPath == null) {
             status.setText("Missing html_path or pdf_path.");
-            finish();
+            finishWithError("Missing html_path or pdf_path parameters.");
             return;
         }
 
@@ -58,6 +58,33 @@ public class MainActivity extends Activity {
         } else {
             startConversion();
         }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        started = false;
+        parseIntent(intent);
+        if (htmlPath != null && pdfPath != null) {
+            startConversion();
+        }
+    }
+
+    private void parseIntent(Intent intent) {
+        if (intent == null) return;
+
+        // 1. Try reading from Deep Link URI (gemini-pdf://render?html=...&pdf=...)
+        Uri uri = intent.getData();
+        if (uri != null && "gemini-pdf".equalsIgnoreCase(uri.getScheme())) {
+            htmlPath = uri.getQueryParameter("html");
+            pdfPath = uri.getQueryParameter("pdf");
+            return;
+        }
+
+        // 2. Fallback to standard Intent Extras (for legacy am start calls)
+        htmlPath = intent.getStringExtra("html_path");
+        pdfPath = intent.getStringExtra("pdf_path");
     }
 
     @Override
@@ -95,7 +122,7 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // Allow local images, fonts and layout to settle before exporting.
+                // Allow local images, fonts, and layout to settle before exporting.
                 handler.postDelayed(() -> exportPdf(), 900);
             }
         });
@@ -129,7 +156,7 @@ public class MainActivity extends Activity {
     }
 
     private void finishWithError(String message) {
-        android.util.Log.e("GeminiExamPDF", message);
+        Log.e(TAG, message);
         finish();
     }
 
