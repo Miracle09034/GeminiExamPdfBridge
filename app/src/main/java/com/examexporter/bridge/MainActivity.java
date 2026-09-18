@@ -10,13 +10,16 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.File;
+import java.net.URLDecoder;
 
 public class MainActivity extends Activity {
     private WebView webView;
@@ -26,6 +29,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private static final int REQ_STORAGE = 1001;
+    private static final String TAG = "GeminiExamPDF";
 
     @Override
     protected void onCreate(Bundle state) {
@@ -38,13 +42,10 @@ public class MainActivity extends Activity {
         status.setPadding(40, 40, 40, 40);
         setContentView(status);
 
-        Intent intent = getIntent();
-        htmlPath = intent.getStringExtra("html_path");
-        pdfPath = intent.getStringExtra("pdf_path");
+        parseIntent(getIntent());
 
         if (htmlPath == null || pdfPath == null) {
-            status.setText("Missing html_path or pdf_path.");
-            finish();
+            finishWithError("Missing html_path or pdf_path parameters.");
             return;
         }
 
@@ -60,11 +61,37 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void parseIntent(Intent intent) {
+        if (intent == null) return;
+
+        Uri uri = intent.getData();
+        if (uri != null && "gemini-pdf".equalsIgnoreCase(uri.getScheme())) {
+            try {
+                // Safely decode percent-encoded paths (e.g. spaces in "exam folder")
+                String rawHtml = uri.getQueryParameter("html");
+                String rawPdf = uri.getQueryParameter("pdf");
+
+                if (rawHtml != null) htmlPath = URLDecoder.decode(rawHtml, "UTF-8");
+                if (rawPdf != null) pdfPath = URLDecoder.decode(rawPdf, "UTF-8");
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to decode URI parameters", e);
+            }
+            return;
+        }
+
+        htmlPath = intent.getStringExtra("html_path");
+        pdfPath = intent.getStringExtra("pdf_path");
+    }
+
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == REQ_STORAGE) {
-            startConversion();
+            if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
+                startConversion();
+            } else {
+                finishWithError("Storage permission denied by user.");
+            }
         }
     }
 
@@ -74,7 +101,7 @@ public class MainActivity extends Activity {
 
         File html = new File(htmlPath);
         if (!html.exists()) {
-            finishWithError("HTML file not found: " + htmlPath);
+            finishWithError("HTML file not found at: " + htmlPath);
             return;
         }
 
@@ -83,22 +110,21 @@ public class MainActivity extends Activity {
         if (parent != null && !parent.exists()) parent.mkdirs();
 
         webView = new WebView(this);
-        webView.setVisibility(View.VISIBLE);
+        webView.setVisibility(View.INVISIBLE);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setAllowFileAccess(true);
         settings.setAllowContentAccess(true);
-        settings.setLoadsImagesAutomatically(true);
-        settings.setDefaultTextEncodingName("UTF-8");
         settings.setAllowFileAccessFromFileURLs(true);
         settings.setAllowUniversalAccessFromFileURLs(true);
+        settings.setLoadsImagesAutomatically(true);
+        settings.setDefaultTextEncodingName("UTF-8");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                // Allow local images, fonts and layout to settle before exporting.
-                handler.postDelayed(() -> exportPdf(), 900);
+                handler.postDelayed(() -> exportPdf(), 1000);
             }
         });
 
@@ -109,34 +135,36 @@ public class MainActivity extends Activity {
     }
 
     private void exportPdf() {
-    if (webView == null) return;
+        if (webView == null) return;
 
-    try {
-        android.print.PrintAttributes attrs =
-                new android.print.PrintAttributes.Builder()
-                        .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4)
-                        .setMinMargins(android.print.PrintAttributes.Margins.NO_MARGINS)
-                        .build();
+        try {
+            android.print.PrintAttributes attrs =
+                    new android.print.PrintAttributes.Builder()
+                            .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4)
+                            .setMinMargins(android.print.PrintAttributes.Margins.NO_MARGINS)
+                            .build();
 
-        android.print.PrintDocumentAdapter adapter =
-                webView.createPrintDocumentAdapter(new File(pdfPath).getName());
+            android.print.PrintDocumentAdapter adapter =
+                    webView.createPrintDocumentAdapter(new File(pdfPath).getName());
 
-        new android.print.PdfPrint(attrs).print(
-                adapter,
-                new File(pdfPath)
-        );
+            new android.print.PdfPrint(attrs).print(
+                    adapter,
+                    new File(pdfPath)
+            );
 
-        // Give the print job 1 second to write the file, then close the Activity
-        handler.postDelayed(this::finish, 1000);
+            // Wait 1.5 seconds for PDF file output stream to flush, then finish
+            handler.postDelayed(this::finish, 1500);
 
-    } catch (Exception e) {
-        finishWithError("PDF export failed: " + e);
+        } catch (Exception e) {
+            finishWithError("PDF export failed: " + e.getMessage());
+        }
     }
-}
 
     private void finishWithError(String message) {
-        android.util.Log.e("GeminiExamPDF", message);
-        finish();
+        Log.e(TAG, message);
+        // Show a brief Toast before closing so the failure reason is visible on screen
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        handler.postDelayed(this::finish, 2000);
     }
 
     @Override
