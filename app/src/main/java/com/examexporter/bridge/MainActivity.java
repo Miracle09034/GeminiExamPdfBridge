@@ -50,7 +50,7 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
-        started = false; // Reset flag for new conversion request
+        started = false;
         handleIncomingIntent(intent);
     }
 
@@ -147,7 +147,7 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 statusTextView.setText("Rendering complete. Generating PDF...");
-                handler.postDelayed(() -> exportPdf(), 1200);
+                handler.postDelayed(() -> exportPdf(), 800);
             }
         });
 
@@ -169,44 +169,30 @@ public class MainActivity extends Activity {
                     webView.createPrintDocumentAdapter(new File(pdfPath).getName());
 
             File outputFile = new File(pdfPath);
+            statusTextView.setText("Writing PDF to disk...");
 
             new android.print.PdfPrint(attrs).print(
                     adapter,
-                    outputFile
+                    outputFile,
+                    new android.print.PdfPrint.Callback() {
+                        @Override
+                        public void onSuccess(File file) {
+                            handler.post(() -> {
+                                statusTextView.setText("PDF complete! Size: " + file.length() + " bytes");
+                                handler.postDelayed(MainActivity.this::finish, 500);
+                            });
+                        }
+
+                        @Override
+                        public void onFailure(String error) {
+                            handler.post(() -> finishWithError("PDF Generation Failed: " + error));
+                        }
+                    }
             );
-
-            statusTextView.setText("Writing PDF to disk...");
-
-            // Poll the file on disk until it has a valid size (> 1KB) and stops growing
-            waitForPdfAndFinish(outputFile, 0, 0);
 
         } catch (Throwable t) {
             finishWithError("PDF Export Exception: " + t.getMessage());
         }
-    }
-
-    private void waitForPdfAndFinish(File file, long lastSize, int attempts) {
-        if (attempts > 40) {
-            finishWithError("Error: PDF writing timed out on disk.");
-            return;
-        }
-
-        handler.postDelayed(() -> {
-            if (file.exists()) {
-                long currentSize = file.length();
-                
-                // If file is > 1KB and size hasn't changed since last check (flush complete)
-                if (currentSize > 1024 && currentSize == lastSize) {
-                    statusTextView.setText("PDF complete! Size: " + currentSize + " bytes");
-                    handler.postDelayed(this::finish, 500);
-                    return;
-                }
-                
-                waitForPdfAndFinish(file, currentSize, attempts + 1);
-            } else {
-                waitForPdfAndFinish(file, 0, attempts + 1);
-            }
-        }, 500);
     }
 
     private void finishWithError(String message) {
