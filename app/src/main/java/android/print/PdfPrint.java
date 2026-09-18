@@ -1,114 +1,70 @@
 package android.print;
 
+import android.os.Bundle;
 import android.os.CancellationSignal;
 import android.os.ParcelFileDescriptor;
+import android.util.Log;
+
 import java.io.File;
 
-/**
- * Direct WebView -> PDF writer.
- *
- * It intentionally lives in android.print so it can instantiate the framework's
- * package-visible PrintDocumentAdapter callback classes on Android versions where
- * their constructors are package-private.
- */
-public final class PdfPrint {
-    private final PrintAttributes attributes;
+public class PdfPrint {
+    private static final String TAG = "PdfPrint";
+    private final PrintAttributes printAttributes;
 
-    public PdfPrint(PrintAttributes attributes) {
-        this.attributes = attributes;
+    public interface Callback {
+        void onSuccess(File file);
+        void onFailure(String error);
     }
 
-    public void print(
-            final PrintDocumentAdapter adapter,
-            final File outputFile
-    ) {
-        try {
-            File parent = outputFile.getParentFile();
-            if (parent != null && !parent.exists()) {
-                parent.mkdirs();
-            }
+    public PdfPrint(PrintAttributes printAttributes) {
+        this.printAttributes = printAttributes;
+    }
 
-            if (outputFile.exists()) {
-                outputFile.delete();
-            }
+    public void print(final PrintDocumentAdapter adapter, final File path, final Callback callback) {
+        if (path.exists()) {
+            path.delete();
+        }
 
-            final ParcelFileDescriptor destination =
-                    ParcelFileDescriptor.open(
-                            outputFile,
-                            ParcelFileDescriptor.MODE_CREATE
-                                    | ParcelFileDescriptor.MODE_READ_WRITE
-                                    | ParcelFileDescriptor.MODE_TRUNCATE
+        adapter.onLayout(null, printAttributes, null, new PrintDocumentAdapter.LayoutResultCallback() {
+            @Override
+            public void onLayoutFinished(PrintDocumentInfo info, boolean changed) {
+                try {
+                    ParcelFileDescriptor pfd = ParcelFileDescriptor.open(
+                            path, ParcelFileDescriptor.MODE_READ_WRITE | ParcelFileDescriptor.MODE_CREATE
                     );
 
-            adapter.onLayout(
-                    null,
-                    attributes,
-                    new CancellationSignal(),
-                    new PrintDocumentAdapter.LayoutResultCallback() {
+                    PageRange[] pages = new PageRange[]{PageRange.ALL_PAGES};
+
+                    adapter.onWrite(pages, pfd, new CancellationSignal(), new PrintDocumentAdapter.WriteResultCallback() {
                         @Override
-                        public void onLayoutFinished(
-                                PrintDocumentInfo info,
-                                boolean changed
-                        ) {
+                        public void onWriteFinished(PageRange[] pages) {
                             try {
-                                adapter.onWrite(
-                                        new PageRange[]{PageRange.ALL_PAGES},
-                                        destination,
-                                        new CancellationSignal(),
-                                        new PrintDocumentAdapter.WriteResultCallback() {
-                                            @Override
-                                            public void onWriteFinished(PageRange[] pages) {
-                                                try {
-                                                    destination.close();
-                                                } catch (Exception ignored) {}
-                                            }
-
-                                            @Override
-                                            public void onWriteFailed(CharSequence error) {
-                                                try {
-                                                    destination.close();
-                                                } catch (Exception ignored) {}
-                                                android.util.Log.e(
-                                                        "GeminiExamPDF",
-                                                        "Write failed: " + error
-                                                );
-                                            }
-
-                                            @Override
-                                            public void onWriteCancelled() {
-                                                try {
-                                                    destination.close();
-                                                } catch (Exception ignored) {}
-                                            }
-                                        }
-                                );
+                                pfd.close();
+                                if (path.exists() && path.length() > 0) {
+                                    if (callback != null) callback.onSuccess(path);
+                                } else {
+                                    if (callback != null) callback.onFailure("File created but output stream was empty.");
+                                }
                             } catch (Exception e) {
-                                try {
-                                    destination.close();
-                                } catch (Exception ignored) {}
-                                android.util.Log.e(
-                                        "GeminiExamPDF",
-                                        "onWrite failed",
-                                        e
-                                );
+                                if (callback != null) callback.onFailure("Failed to close file descriptor: " + e.getMessage());
                             }
                         }
 
                         @Override
-                        public void onLayoutFailed(CharSequence error) {
-                            try {
-                                destination.close();
-                            } catch (Exception ignored) {}
-                            android.util.Log.e(
-                                    "GeminiExamPDF",
-                                    "Layout failed: " + error
-                            );
+                        public void onWriteFailed(CharSequence error) {
+                            try { pfd.close(); } catch (Exception ignored) {}
+                            if (callback != null) callback.onFailure("Write failed: " + error);
                         }
-                    },
-                    null
-            );
-        } catch (Exception e) {
-            android.util.Log.e("GeminiExamPDF", "Print setup failed", e);
-        }
+                    });
+                } catch (Exception e) {
+                    if (callback != null) callback.onFailure("Failed to create ParcelFileDescriptor: " + e.getMessage());
+                }
+            }
+
+            @Override
+            public void onLayoutFailed(CharSequence error) {
+                if (callback != null) callback.onFailure("Layout failed: " + error);
+            }
+        }, new Bundle());
     }
 }
