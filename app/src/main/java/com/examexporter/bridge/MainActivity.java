@@ -26,6 +26,7 @@ public class MainActivity extends Activity {
     private String htmlPath;
     private String pdfPath;
     private boolean started;
+    private TextView statusTextView;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private static final int REQ_STORAGE = 1001;
@@ -35,19 +36,33 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
 
-        TextView status = new TextView(this);
-        status.setText("Preparing PDF…");
-        status.setTextSize(16);
-        status.setTextColor(Color.DKGRAY);
-        status.setPadding(40, 40, 40, 40);
-        setContentView(status);
+        statusTextView = new TextView(this);
+        statusTextView.setText("Initializing Gemini Exam PDF Bridge...");
+        statusTextView.setTextSize(18);
+        statusTextView.setTextColor(Color.BLACK);
+        statusTextView.setPadding(50, 50, 50, 50);
+        setContentView(statusTextView);
 
-        parseIntent(getIntent());
+        handleIncomingIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        started = false; // Reset flag for new conversion request
+        handleIncomingIntent(intent);
+    }
+
+    private void handleIncomingIntent(Intent intent) {
+        parseIntent(intent);
 
         if (htmlPath == null || pdfPath == null) {
-            finishWithError("Missing html_path or pdf_path parameters.");
+            finishWithError("Error: Deep link missing html or pdf parameter.");
             return;
         }
+
+        statusTextView.setText("HTML: " + htmlPath + "\nPDF: " + pdfPath);
 
         if (Build.VERSION.SDK_INT >= 23 &&
                 checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -67,14 +82,20 @@ public class MainActivity extends Activity {
         Uri uri = intent.getData();
         if (uri != null && "gemini-pdf".equalsIgnoreCase(uri.getScheme())) {
             try {
-                // Safely decode percent-encoded paths (e.g. spaces in "exam folder")
                 String rawHtml = uri.getQueryParameter("html");
                 String rawPdf = uri.getQueryParameter("pdf");
 
-                if (rawHtml != null) htmlPath = URLDecoder.decode(rawHtml, "UTF-8");
-                if (rawPdf != null) pdfPath = URLDecoder.decode(rawPdf, "UTF-8");
+                if (rawHtml != null) {
+                    // Replace '+' with space first, then decode URL entities
+                    rawHtml = rawHtml.replace("+", " ");
+                    htmlPath = URLDecoder.decode(rawHtml, "UTF-8");
+                }
+                if (rawPdf != null) {
+                    rawPdf = rawPdf.replace("+", " ");
+                    pdfPath = URLDecoder.decode(rawPdf, "UTF-8");
+                }
             } catch (Exception e) {
-                Log.e(TAG, "Failed to decode URI parameters", e);
+                Log.e(TAG, "Failed to decode URI", e);
             }
             return;
         }
@@ -90,7 +111,7 @@ public class MainActivity extends Activity {
             if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) {
                 startConversion();
             } else {
-                finishWithError("Storage permission denied by user.");
+                finishWithError("Error: Storage permission denied by user.");
             }
         }
     }
@@ -101,16 +122,19 @@ public class MainActivity extends Activity {
 
         File html = new File(htmlPath);
         if (!html.exists()) {
-            finishWithError("HTML file not found at: " + htmlPath);
+            finishWithError("Error: HTML file does NOT exist at:\n" + htmlPath);
             return;
         }
 
         File out = new File(pdfPath);
         File parent = out.getParentFile();
-        if (parent != null && !parent.exists()) parent.mkdirs();
+        if (parent != null && !parent.exists()) {
+            parent.mkdirs();
+        }
 
         webView = new WebView(this);
-        webView.setVisibility(View.INVISIBLE);
+        // Visible webview prevents optimizations that skip rendering print graphics
+        webView.setVisibility(View.VISIBLE);
 
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
@@ -124,11 +148,10 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageFinished(WebView view, String url) {
-                handler.postDelayed(() -> exportPdf(), 1000);
+                statusTextView.setText("Rendering complete. Generating PDF...");
+                handler.postDelayed(() -> exportPdf(), 1200);
             }
         });
-
-        setContentView(webView);
 
         Uri uri = Uri.fromFile(html);
         webView.loadUrl(uri.toString());
@@ -152,19 +175,23 @@ public class MainActivity extends Activity {
                     new File(pdfPath)
             );
 
-            // Wait 1.5 seconds for PDF file output stream to flush, then finish
+            statusTextView.setText("PDF written successfully!");
             handler.postDelayed(this::finish, 1500);
 
-        } catch (Exception e) {
-            finishWithError("PDF export failed: " + e.getMessage());
+        } catch (Throwable t) {
+            finishWithError("PDF Export Exception: " + t.getMessage());
         }
     }
 
     private void finishWithError(String message) {
         Log.e(TAG, message);
-        // Show a brief Toast before closing so the failure reason is visible on screen
+        if (statusTextView != null) {
+            statusTextView.setTextColor(Color.RED);
+            statusTextView.setText(message);
+        }
         Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-        handler.postDelayed(this::finish, 2000);
+        // Keep activity open for 6 seconds so the on-screen error text can be read
+        handler.postDelayed(this::finish, 6000);
     }
 
     @Override
