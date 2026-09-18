@@ -159,9 +159,13 @@ public class MainActivity extends Activity {
         if (webView == null) return;
 
         try {
+            android.print.PrintAttributes.Resolution resolution =
+                    new android.print.PrintAttributes.Resolution("pdf", "pdf", 300, 300);
+
             android.print.PrintAttributes attrs =
                     new android.print.PrintAttributes.Builder()
                             .setMediaSize(android.print.PrintAttributes.MediaSize.ISO_A4)
+                            .setResolution(resolution)
                             .setMinMargins(android.print.PrintAttributes.Margins.NO_MARGINS)
                             .build();
 
