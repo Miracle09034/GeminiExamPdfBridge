@@ -170,28 +170,50 @@ public class MainActivity extends Activity {
             android.print.PrintDocumentAdapter adapter =
                     webView.createPrintDocumentAdapter(new File(pdfPath).getName());
 
+            File outputFile = new File(pdfPath);
+
+            // Execute the print job
             new android.print.PdfPrint(attrs).print(
                     adapter,
-                    new File(pdfPath)
+                    outputFile
             );
 
-            statusTextView.setText("PDF written successfully!");
-            handler.postDelayed(this::finish, 1500);
+            statusTextView.setText("Writing PDF to disk...");
+
+            // Poll the file on disk until it has a valid size (> 1KB) and stops growing
+            waitForPdfAndFinish(outputFile, 0, 0);
 
         } catch (Throwable t) {
             finishWithError("PDF Export Exception: " + t.getMessage());
         }
     }
 
-    private void finishWithError(String message) {
-        Log.e(TAG, message);
-        if (statusTextView != null) {
-            statusTextView.setTextColor(Color.RED);
-            statusTextView.setText(message);
+    private void waitForPdfAndFinish(File file, long lastSize, int attempts) {
+        // Stop waiting if attempts exceed 20 seconds (40 * 500ms)
+        if (attempts > 40) {
+            finishWithError("Error: PDF writing timed out on disk.");
+            return;
         }
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
-        // Keep activity open for 6 seconds so the on-screen error text can be read
-        handler.postDelayed(this::finish, 6000);
+
+        handler.postDelayed(() -> {
+            if (file.exists()) {
+                long currentSize = file.length();
+                
+                // If file is > 1KB and size hasn't changed since last check (flush complete)
+                if (currentSize > 1024 && currentSize == lastSize) {
+                    statusTextView.setText("PDF complete! Size: " + currentSize + " bytes");
+                    // Safe to destroy activity now!
+                    handler.postDelayed(this::finish, 500);
+                    return;
+                }
+                
+                // Keep polling until file stops growing
+                waitForPdfAndFinish(file, currentSize, attempts + 1);
+            } else {
+                // File hasn't been created yet, keep waiting
+                waitForPdfAndFinish(file, 0, attempts + 1);
+            }
+        }, 500);
     }
 
     @Override
