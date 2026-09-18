@@ -86,7 +86,6 @@ public class MainActivity extends Activity {
                 String rawPdf = uri.getQueryParameter("pdf");
 
                 if (rawHtml != null) {
-                    // Replace '+' with space first, then decode URL entities
                     rawHtml = rawHtml.replace("+", " ");
                     htmlPath = URLDecoder.decode(rawHtml, "UTF-8");
                 }
@@ -133,7 +132,6 @@ public class MainActivity extends Activity {
         }
 
         webView = new WebView(this);
-        // Visible webview prevents optimizations that skip rendering print graphics
         webView.setVisibility(View.VISIBLE);
 
         WebSettings settings = webView.getSettings();
@@ -172,7 +170,6 @@ public class MainActivity extends Activity {
 
             File outputFile = new File(pdfPath);
 
-            // Execute the print job
             new android.print.PdfPrint(attrs).print(
                     adapter,
                     outputFile
@@ -189,7 +186,6 @@ public class MainActivity extends Activity {
     }
 
     private void waitForPdfAndFinish(File file, long lastSize, int attempts) {
-        // Stop waiting if attempts exceed 20 seconds (40 * 500ms)
         if (attempts > 40) {
             finishWithError("Error: PDF writing timed out on disk.");
             return;
@@ -202,18 +198,25 @@ public class MainActivity extends Activity {
                 // If file is > 1KB and size hasn't changed since last check (flush complete)
                 if (currentSize > 1024 && currentSize == lastSize) {
                     statusTextView.setText("PDF complete! Size: " + currentSize + " bytes");
-                    // Safe to destroy activity now!
                     handler.postDelayed(this::finish, 500);
                     return;
                 }
                 
-                // Keep polling until file stops growing
                 waitForPdfAndFinish(file, currentSize, attempts + 1);
             } else {
-                // File hasn't been created yet, keep waiting
                 waitForPdfAndFinish(file, 0, attempts + 1);
             }
         }, 500);
+    }
+
+    private void finishWithError(String message) {
+        Log.e(TAG, message);
+        if (statusTextView != null) {
+            statusTextView.setTextColor(Color.RED);
+            statusTextView.setText(message);
+        }
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+        handler.postDelayed(this::finish, 6000);
     }
 
     @Override
