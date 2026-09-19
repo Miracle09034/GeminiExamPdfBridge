@@ -175,6 +175,7 @@ public class MainActivity extends Activity {
             File outputFile = new File(pdfPath);
             statusTextView.setText("Writing PDF to disk...");
 
+            // Do NOT call finish() here! Let PdfPrint finish first.
             new android.print.PdfPrint(attrs).print(
                     adapter,
                     outputFile,
@@ -183,7 +184,8 @@ public class MainActivity extends Activity {
                         public void onSuccess(File file) {
                             handler.post(() -> {
                                 statusTextView.setText("PDF complete! Size: " + file.length() + " bytes");
-                                handler.postDelayed(MainActivity.this::finish, 500);
+                                // Wait 800ms to allow file streams to flush to disk before closing activity
+                                handler.postDelayed(MainActivity.this::finish, 800);
                             });
                         }
 
